@@ -28,11 +28,11 @@ colnames(pbp)
 
 
 # Points to win
-# Uses only games where both teams are fcs and where both teams don't have a score of zero (canceled)
+# Uses only games where both teams are fbs and where both teams don't have a score of zero (canceled)
 games = load_cfb_schedules(seasons) %>% 
   filter(season_type == "regular", 
-         home_division == 'fcs', 
-         away_division == 'fcs',
+         home_division == 'fbs', 
+         away_division == 'fbs',
          completed == TRUE,
          (home_points != 0 | away_points != 0))
 
