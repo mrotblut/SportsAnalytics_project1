@@ -8,21 +8,13 @@ conferences <- cfbd_conferences()
 teams <- cfbd_team_info()
 
 
-
 pbp <- load_cfb_pbp(seasons = 2024)
 
 rushes <- pbp %>%
-  filter(rush == 1)
+  filter(rush == 1) %>%
+  filter(season_type == "regular")
+rushes$rush_player_id <- as.character(rushes$rush_player_id)
 
-rushes <- rushes %>%
-  left_join(teams, by = c("def_pos_team" = "school"))
-
-rushes <- rushes %>%
-  rename(oppConf = conference.y)
-
-milroecheck <- rushes %>%
-  filter(rusher_player_name == "Jalen Milroe") %>%
-  pull(rush_player_id)
 
 rosterids <- rosters %>%
   mutate(
@@ -30,15 +22,56 @@ rosterids <- rosters %>%
   ) %>%
   select(name, team, position, athlete_id)
 
-rushes$rush_player_id <- as.character(rushes$rush_player_id)
 
 rushes <- rushes %>%
   left_join(rosterids, by = c("rush_player_id" = "athlete_id"))
+
+teaminfo <- rosterids %>%
+  left_join(teams, by = c("team" = "school"))
+
+#Replacement player calculation
+rbs <- rushes %>%
+  filter(position %in% c("RB")) %>%
+  group_by(pos_team, position, conference, rusher_player_name) %>%
+  summarize(
+    rush_attempts = n(),
+    total_rush_epa = sum(EPA, na.rm = TRUE),
+    epa_per_rush = mean(EPA, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(pos_team, desc(rush_attempts)) %>%
+  filter(!is.na(rusher_player_name))
+
+confrbs <- rbs %>%
+  group_by(conference, pos_team) %>%
+  summarise(
+    RBS = n()
+  ) %>%
+  group_by(conference) %>%
+  summarise(
+    teams = n(),
+    avgRBS = floor(mean(RBS))
+  ) %>%
+  filter(conference %in% c("American Athletic", "ACC", "Big 12", "Big Ten", "Conference USA",
+                             "FBS Independents", "Mid-American", "Mountain West", "Pac-12",
+                             "SEC", "Sun Belt")) %>%
+  mutate(
+    slicenum = teams * avgRBS
+  )
+
+
+#Data Cleaning, Model Prep
+rushes <- rushes %>%
+  left_join(teams, by = c("def_pos_team" = "school"))
+
+rushes <- rushes %>%
+  rename(oppConf = conference.y)
 
 rushes <- rushes %>%
   mutate(
     qbRun = ifelse(position == "QB", 1, 0)
   )
+
 
 rushes <- rushes %>%
   mutate(
@@ -59,15 +92,16 @@ rushes <-
 qbRuns <- rushes %>%
   filter(qbRun == 1)
 
+
 rushesfilter <- rushes %>%
   filter(qbRun == 0)
 
 rushesfilter <- rushesfilter %>%
-  select(game_id, id_play, rush_player_id, qbRun, passer_player_name, pos_team, oppConf, def_pos_team, homeTeam, rz_play, epa_success,
+  select(game_id, id_play, rush_player_id, qbRun, conference.x,passer_player_name, pos_team, oppConf, def_pos_team, homeTeam, rz_play, epa_success,
          EPA, conference_game, stuffed_run, pass_strength)
 
 qbRuns <- qbRuns %>%
-  select(game_id, id_play, rush_player_id, qbRun, passer_player_name, pos_team, oppConf, def_pos_team, homeTeam, rz_play, epa_success,
+  select(game_id, id_play, rush_player_id, qbRun, conference.x, passer_player_name, pos_team, oppConf, def_pos_team, homeTeam, rz_play, epa_success,
          EPA, conference_game, stuffed_run, pass_strength)
 
 rushStuffRate <- rushesfilter %>%
@@ -90,8 +124,22 @@ qbRuns <-
   qbRuns |>
   dplyr::inner_join(qbStuffRate, by = "def_pos_team") 
 
+rushesfilter <- rushesfilter %>%
+  mutate(
+    rush_player_id = factor(rush_player_id),
+    pos_team = factor(pos_team),
+    def_pos_team = factor(def_pos_team),
+    oppConf = factor(oppConf)
+  )
 
-#Sameer's NFL Rush Model Fit
+qbRuns <- qbRuns %>%
+  mutate(
+    rush_player_id = factor(rush_player_id),
+    pos_team = factor(pos_team),
+    def_pos_team = factor(def_pos_team),
+    oppConf = factor(oppConf)
+  )
+#QB and RB Rush Model Fit
 qbrun_fit <-
   lmer(EPA ~ 1 + (1 | rush_player_id) + (1 | oppConf) + (1 | def_pos_team) +
          homeTeam + pass_strength + rz_play + defStuffRate,
@@ -100,9 +148,6 @@ nonqb_run_fit <-
   lmer(EPA ~ 1 + (1 | rush_player_id) + (1 | oppConf) + (1 | def_pos_team) +
          homeTeam + pass_strength + rz_play + defStuffRate,
        data = rushesfilter)
-
-#Variables to compute - pass strength, rush strength, conference adjustment (FBS and FCS)
-#Consider using variables like defensive stuffed run rate, redzone play or not, rush player's success rate
 
 tmp_qbrun <- ranef(qbrun_fit)
 qbrun_effects <-
@@ -121,14 +166,129 @@ run_effects |>
   dplyr::left_join(y = rosterids |> dplyr::select(athlete_id, name), by = "athlete_id") |>
   dplyr::select(name, ipa_run) |>
   dplyr::arrange(dplyr::desc(ipa_run)) |>
+  dplyr::slice_head(n = 25)
+
+qbrun_effects |>
+  dplyr::left_join(y = rosterids |> dplyr::select(athlete_id, name), by = "athlete_id") |>
+  dplyr::select(name, ipa_qbrun) |>
+  dplyr::arrange(dplyr::desc(ipa_qbrun)) |>
+  dplyr::slice_head(n = 25)
+
+qbrun_ipaa <-
+  qbRuns |>
+  dplyr::group_by(rush_player_id) |>
+  dplyr::summarise(n_qbrun = dplyr::n()) |>
+  dplyr::rename(athlete_id = rush_player_id) |>
+  dplyr::left_join(y = qbrun_effects, by = "athlete_id") |>
+  dplyr::mutate(ipaa_qbrun = n_qbrun * ipa_qbrun) |>
+  dplyr::left_join(y = rosterids |> dplyr::select(athlete_id, name,  position), by = "athlete_id")
+
+run_ipaa <-
+  rushesfilter |>
+  dplyr::group_by(rush_player_id) |>
+  dplyr::summarise(n_run = dplyr::n()) |>
+  dplyr::rename(athlete_id = rush_player_id) |>
+  dplyr::left_join(y = run_effects, by = "athlete_id") |>
+  dplyr::mutate(ipaa_run = n_run * ipa_run) |>
+  dplyr::left_join(y = rosterids |> dplyr::select(athlete_id, name, position), by = "athlete_id")
+
+
+run_ipaa |>
+  dplyr::select(name, ipaa_run) |>
+  dplyr::arrange(dplyr::desc(ipaa_run)) |>
   dplyr::slice_head(n = 10)
 
+qbrun_ipaa |>
+  dplyr::select(name, ipaa_qbrun) |>
+  dplyr::arrange(dplyr::desc(ipaa_qbrun)) |>
+  dplyr::slice_head(n = 25)
+
+#RB IPAR calculation
+run_ipaa <- run_ipaa%>%
+  left_join(teaminfo, by = "athlete_id")
+
+run_ipaa <- run_ipaa %>%
+  left_join(confrbs, by =c("conference" = "conference")) %>%
+  filter(!is.na(conference))
+
+run_ipaa <- run_ipaa %>%
+  filter(position.x == "RB")
+
+
+run_ipaa <- run_ipaa %>%
+  group_by(conference) %>%
+  arrange(desc(n_run), .by_group = TRUE) %>%
+  mutate(
+    threshold = nth(n_run, first(slicenum)),  # get the slicenum for this conf
+    repl_rb = if_else(n_run <= threshold, 1, 0)
+  ) %>%
+  ungroup()
+
+
+repl_rb_ipa_run <- run_ipaa %>%
+  group_by(conference) %>%
+  filter(repl_rb == 1) %>%
+  summarise(
+    avg_repl_ipa_run = mean(ipa_run, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+run_ipaa <- run_ipaa %>%
+  left_join(repl_rb_ipa_run, by = "conference")
+
+run_ipar <-
+  run_ipaa |>
+  dplyr::mutate(
+    shadow_run = dplyr::case_when(
+      position.x == "RB" ~ n_run * avg_repl_ipa_run),
+    ipar_run = ipaa_run - shadow_run)
+
+#QB IPAR Calculation
+qbrun_ipaa <- qbrun_ipaa%>%
+  left_join(teaminfo, by = "athlete_id")
+
+qbrun_ipaa <- qbrun_ipaa %>%
+  left_join(confrbs, by =c("conference" = "conference")) %>%
+  filter(!is.na(conference)) %>%
+  mutate(
+    slicenum = teams
+  )
 
 
 
-# Points to win
-# Uses only games where both teams are fbs and where both teams don't have a score of zero (canceled)
-games = load_cfb_schedules(seasons) %>% 
+qbrun_ipaa <- qbrun_ipaa %>%
+  group_by(conference) %>%
+  arrange(desc(n_qbrun), .by_group = TRUE) %>%
+  mutate(
+    threshold = nth(n_qbrun, first(slicenum)),  # get the slicenum for this conf
+    repl_qb = if_else(n_qbrun <= threshold, 1, 0)
+  ) %>%
+  ungroup()
+
+
+repl_qb_ipa_run <-
+  qbrun_ipaa |>
+  group_by(conference) %>%
+  dplyr::filter(repl_qb == 1) |>
+  summarise(
+    avg_repl_ipa_qbrun = mean(ipa_qbrun, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+qbrun_ipaa <- qbrun_ipaa %>%
+  left_join(repl_qb_ipa_run, by = "conference")
+
+
+
+qbrun_ipar <-
+  qbrun_ipaa |>
+  dplyr::filter(position.x %in% c("QB")) |>
+  dplyr::mutate(
+    shadow_qbrun = dplyr::case_when(
+      position.x == "QB" ~ n_qbrun * avg_repl_ipa_qbrun),
+    qb_ipar = ipaa_qbrun - shadow_qbrun)
+
+games = load_cfb_schedules(2024) %>% 
   filter(season_type == "regular", 
          home_division == 'fbs', 
          away_division == 'fbs',
@@ -169,3 +329,40 @@ records =
 
 win_score_fit = lm(wins~scoring_diff, data = records)
 points_to_win = coefficients(win_score_fit)[2] %>% unname()
+
+print(points_to_win)
+
+rbwars <-
+  unique(c(run_ipar$athlete_id))
+
+qbwars <-
+  unique(c(qbrun_ipar$athlete_id))
+
+
+skill_war <-
+  data.frame(athlete_id = rbwars) |>
+  dplyr::left_join(y = rosterids |> dplyr::select(athlete_id, name, position, team), by = "athlete_id") |>
+  dplyr::left_join(y = run_ipar |> dplyr::select(athlete_id, n_run, ipar_run), by = "athlete_id") |>
+  tidyr::replace_na(list(ipar_run=0)) |>
+  dplyr::mutate(
+    war_run = ipar_run * points_to_win)
+
+qbwar <-
+  data.frame(athlete_id = qbwars) |>
+  dplyr::left_join(y = rosterids |> dplyr::select(athlete_id, name, position, team), by = "athlete_id") |>
+  dplyr::left_join(y = qbrun_ipar |> dplyr::select(athlete_id, n_qbrun, qb_ipar), by = "athlete_id") |>
+  tidyr::replace_na(list(qb_ipar=0)) |>
+  dplyr::mutate(
+    war_qbrun = qb_ipar * points_to_win)
+
+
+
+skill_war %>%
+  arrange(desc(war_run)) %>%
+  slice_head(n=10)
+
+qbwar %>%
+  arrange(desc(war_qbrun)) %>%
+  slice_head(n=10)
+
+
