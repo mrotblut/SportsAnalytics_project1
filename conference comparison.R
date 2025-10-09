@@ -5,7 +5,7 @@ library(ggimage)
 library(tidyr)
 
 logos = data.frame(
-  team = c("ACC","American Athletic", "Big 12","Big Ten", "Conference USA", "FBS Independents", "Mid-American", "Mountain West", "Pac-12", "SEC", "Sun Belt"),
+  conference = c("ACC","American Athletic", "Big 12","Big Ten", "Conference USA", "FBS Independents", "Mid-American", "Mountain West", "Pac-12", "SEC", "Sun Belt"),
   logo = c("https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/1.png&transparent=true&w=30&h=30",
            "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/151.png&transparent=true&w=30&h=30",
            "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/4.png&transparent=true&w=30&h=30",
@@ -25,6 +25,13 @@ games = load_cfb_schedules(2024) %>%
          completed == TRUE,
          (home_points != 0 | away_points != 0),
          home_conference != away_conference)
+
+games$home_conference[games$home_team == "Notre Dame"] = "Big Ten"
+games$home_conference[games$home_team == "UConn"] = "ACC"
+games$home_conference[games$home_team == "Massachusetts"] = "Mid-American"
+games$away_conference[games$away_team == "Notre Dame"] = "Big Ten"
+games$away_conference[games$away_team == "UConn"] = "ACC"
+games$away_conference[games$away_team == "Massachusetts"] = "Mid-American"
 
 conf = games %>% 
   select(season,home_team,home_conference) %>%
@@ -56,7 +63,7 @@ records =
   dplyr::full_join(y = loss_diff) %>%
   dplyr::mutate(scoring_diff = win_diff + loss_diff,
                 record = wins-loss) %>% 
-  left_join(logos)
+  left_join(logos, by = c("team" = "conference"))
 
 
 ggplot(records,aes(scoring_diff,wins,image = logo))+
@@ -74,7 +81,7 @@ ggplot(records,aes(scoring_diff,loss,image = logo))+
   theme_bw()
 
 ggplot(records,aes(scoring_diff,record,image = logo))+
-  geom_image(size=.1)+
+  geom_image()+
   labs(x = "Total scoring margin",
        y = "Record",
        title = "Record vs Score Differential")+
@@ -91,6 +98,13 @@ games = load_cfb_schedules(2024) %>%
          completed == TRUE,
          (home_points != 0 | away_points != 0),
          home_conference != away_conference)
+
+games$home_conference[games$home_team == "Notre Dame"] = "Big Ten"
+games$home_conference[games$home_team == "UConn"] = "ACC"
+games$home_conference[games$home_team == "Massachusetts"] = "Mid-American"
+games$away_conference[games$away_team == "Notre Dame"] = "Big Ten"
+games$away_conference[games$away_team == "UConn"] = "ACC"
+games$away_conference[games$away_team == "Massachusetts"] = "Mid-American"
 
 conf_games = games %>%
   mutate(point_diff = home_points - away_points) %>% 
@@ -110,9 +124,6 @@ avg_diff <- conf_games %>%
   summarize(avg_point_diff = mean(point_diff_aligned), .groups = "drop")
 
 
-
-
-logos = rename(logos, conference = team)
 
 
 plot2_data_a = avg_diff %>% 
@@ -144,6 +155,9 @@ conferences <- cfbd_conferences()
 teams <- cfbd_team_info()
 
 pbp <- load_cfb_pbp(seasons = 2024)
+
+teams$conference[teams$school == "Notre Dame"] = "Big Ten"
+teams$conference[teams$school == "UConn"] = "ACC"
 
 rushes <- pbp %>%
   filter(rush == 1) %>%
@@ -178,14 +192,12 @@ rbs <- rushes %>%
     avg_epa_conf = mean(total_rush_epa, na.rm = TRUE, .groups = "drop")
   ) %>% 
   filter(conference %in% c("American Athletic", "ACC", "Big 12", "Big Ten", "Conference USA",
-                           "FBS Independents", "Mid-American", "Mountain West", "Pac-12",
+                           "Mid-American", "Mountain West", "Pac-12",
                            "SEC", "Sun Belt")) %>% 
   left_join(logos)
 
 ggplot(rbs)+
   geom_image(aes(x = conference, y=avg_epa_conf, image = logo), position = position_jitter(height = .2))+
-  geom_point(aes(y=-.5,x=0), alpha = 0)+
-  geom_point(aes(y=.5,x=0), alpha = 0)+
   theme_bw()+
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank())+
