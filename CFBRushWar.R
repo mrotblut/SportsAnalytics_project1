@@ -1,3 +1,20 @@
+library(cfbfastR)
+library(espnscrapeR)
+library(dplyr)
+library(tidyverse)
+library(lme4)
+rosters <- load_cfb_rosters(seasons = 2024)
+conferences <- cfbd_conferences()
+teams <- cfbd_team_info()
+
+
+
+pbp <- load_cfb_pbp(seasons = 2024)
+
+teams$conference[teams$school == "Notre Dame"] = "Big Ten"
+teams$conference[teams$school == "UConn"] = "ACC"
+
+
 rushes <- pbp %>%
     filter(rush == 1) %>%
     filter(season_type == "regular") 
