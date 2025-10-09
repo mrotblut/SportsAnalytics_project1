@@ -16,172 +16,171 @@ teams$conference[teams$school == "UConn"] = "ACC"
 
 
 rushes <- pbp %>%
-    filter(rush == 1) %>%
-    filter(season_type == "regular") 
-  rushes$rush_player_id <- as.character(rushes$rush_player_id)
-  
-  defeff <- rushes %>%
-    group_by(def_pos_team) %>%
-    summarise(
-      carries = n(),
-      efficiency = mean(EPA, na.rm = TRUE)
-    ) %>%
-    filter(carries >= 150) %>%
-    arrange((efficiency))
-  
-  
-  rosterids <- rosters %>%
-    mutate(
-      name = paste(first_name, last_name, sep = " ")
-    ) %>%
-    select(name, team, position, athlete_id)
-  
-  rosterids <- rosterids %>%
-    filter(!(name == "Micah Davis" & team == "Utah State"))
-  
-  
-  rushes <- rushes %>%
-    left_join(rosterids, by = c("rush_player_id" = "athlete_id"))
-  
-  teaminfo <- rosterids %>%
-    left_join(teams, by = c("team" = "school"))
-  
-  #Replacement player calculation
-  rbs <- rushes %>%
-    filter(position %in% c("RB")) %>%
-    group_by(pos_team, position, conference, rusher_player_name) %>%
-    summarize(
-      rush_attempts = n(),
-      total_rush_epa = sum(EPA, na.rm = TRUE),
-      epa_per_rush = mean(EPA, na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    arrange(pos_team, desc(rush_attempts)) %>%
-    filter(!is.na(rusher_player_name))
-  
-  confrbs <- rbs %>%
-    group_by(conference, pos_team) %>%
-    summarise(
-      RBS = n()
-    ) %>%
-    group_by(conference) %>%
-    summarise(
-      teams = n(),
-      avgRBS = 4
-    ) %>%
-    filter(conference %in% c("American Athletic", "ACC", "Big 12", "Big Ten", "Conference USA",
-                               "FBS Independents", "Mid-American", "Mountain West", "Pac-12",
-                               "SEC", "Sun Belt")) %>%
-    mutate(
-      slicenum = teams * avgRBS
-    )
-  
-  
-  #Data Cleaning, Model Prep
-  rushes <- rushes %>%
-    left_join(teams, by = c("def_pos_team" = "school"))
-  
-  rushes <- rushes %>%
-    rename(oppConf = conference.y)
-  
-  rushes <- rushes %>%
-    filter(conference.x %in% c("American Athletic", "ACC", "Big 12", "Big Ten", "Conference USA",
-           "FBS Independents", "Mid-American", "Mountain West", "Pac-12",
-           "SEC", "Sun Belt"))
-  
-  rushes <- rushes %>%
-    filter(conference.x %in% c("American Athletic", "ACC", "Big 12", "Big Ten", "Conference USA",
-                               "FBS Independents", "Mid-American", "Mountain West", "Pac-12",
-                               "SEC", "Sun Belt"))
-  
-  
-  rushes <- rushes %>%
-    mutate(
-      qbRun = ifelse(position == "QB", 1, 0)
-    )
-  
-  
-  rushes <- rushes %>%
-    mutate(
-      homeTeam = ifelse(pos_team == home, 1, 0)
-      )
-  
-  pass_strength <-
-    pbp |>
-    filter(pass == 1) %>%
-    dplyr::group_by(pos_team) |>
-    dplyr::summarise(pass_strength = mean(EPA, na.rm = TRUE))
-  
-  rushes <-
-    rushes |>
-    dplyr::inner_join(pass_strength, by = "pos_team") 
-  
-  
-  qbRuns <- rushes %>%
-    filter(qbRun == 1) 
-  
-  
-  
-  rushesfilter <- rushes %>%
-    filter(qbRun == 0)
+  filter(rush == 1) %>%
+  filter(season_type == "regular") 
+rushes$rush_player_id <- as.character(rushes$rush_player_id)
 
-  
-  rushesfilter <- rushesfilter %>%
-    select(game_id, id_play, rush_player_id, score_diff_start, qbRun, conference.x,passer_player_name, pos_team, oppConf, def_pos_team, homeTeam, rz_play, epa_success,
-           EPA, conference_game, stuffed_run, pass_strength)
-  
-  qbRuns <- qbRuns %>%
-    select(game_id, id_play, rush_player_id,score_diff_start, qbRun, conference.x, passer_player_name, pos_team, oppConf, def_pos_team, homeTeam, rz_play, epa_success,
-           EPA, conference_game, stuffed_run, pass_strength)
-  
-  rushStuffRate <- rushesfilter %>%
-    group_by(def_pos_team) %>%
-    summarise(
-      defStuffRate = mean(stuffed_run, na.rm = TRUE)
-    )
-  qbStuffRate <- qbRuns %>%
-    group_by(def_pos_team) %>%
-    summarise(
-      defStuffRate = mean(stuffed_run, na.rm = TRUE)
-    )
-  
-  
-  rushesfilter <-
-    rushesfilter |>
-    dplyr::inner_join(rushStuffRate, by = "def_pos_team") 
-  
-  qbRuns <-
-    qbRuns |>
-    dplyr::inner_join(qbStuffRate, by = "def_pos_team") 
-  
-  rushesfilter <- rushesfilter %>%
-    mutate(
-      rush_player_id = factor(rush_player_id),
-      pos_team = factor(pos_team),
-      def_pos_team = factor(def_pos_team),
-      oppConf = factor(oppConf)
-    )
-  
-  qbRuns <- qbRuns %>%
-    mutate(
-      rush_player_id = factor(rush_player_id),
-      pos_team = factor(pos_team),
-      def_pos_team = factor(def_pos_team),
-      oppConf = factor(oppConf)
-    )
-  #QB and RB Rush Model Fit - maybe consider point differential to account for teams running it up late. no need to include sacks, maybe do a separate sack model
-  qbrun_fit <-
-    lmer(EPA ~ 1 + (1 | rush_player_id) + (1 | oppConf)
-           + homeTeam + pass_strength + rz_play + defStuffRate + score_diff_start,,
-         data = qbRuns)
-  
-  summary(qbrun_fit)
-  nonqb_run_fit <-
-    lmer(EPA ~ 1 + (1 | rush_player_id) + (1 | oppConf) 
-           + homeTeam + pass_strength + rz_play + defStuffRate + score_diff_start,,
-         data = rushesfilter)
-  
-  summary(nonqb_run_fit)
+defeff <- rushes %>%
+  group_by(def_pos_team) %>%
+  summarise(
+    carries = n(),
+    efficiency = mean(EPA, na.rm = TRUE)
+  ) %>%
+  filter(carries >= 150) %>%
+  arrange((efficiency))
+
+
+rosterids <- rosters %>%
+  mutate(
+    name = paste(first_name, last_name, sep = " ")
+  ) %>%
+  select(name, team, position, athlete_id)
+
+rosterids <- rosterids %>%
+  filter(!(name == "Micah Davis" & team == "Utah State"))
+
+
+rushes <- rushes %>%
+  left_join(rosterids, by = c("rush_player_id" = "athlete_id"))
+
+teaminfo <- rosterids %>%
+  left_join(teams, by = c("team" = "school"))
+
+#Replacement player calculation
+rbs <- rushes %>%
+  filter(position %in% c("RB")) %>%
+  group_by(pos_team, position, conference, rusher_player_name) %>%
+  summarize(
+    rush_attempts = n(),
+    total_rush_epa = sum(EPA, na.rm = TRUE),
+    epa_per_rush = mean(EPA, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(pos_team, desc(rush_attempts)) %>%
+  filter(!is.na(rusher_player_name))
+
+confrbs <- rbs %>%
+  group_by(conference, pos_team) %>%
+  summarise(
+    RBS = n()
+  ) %>%
+  group_by(conference) %>%
+  summarise(
+    teams = n(),
+    avgRBS = 4
+  ) %>%
+  filter(conference %in% c("American Athletic", "ACC", "Big 12", "Big Ten", "Conference USA",
+                           "FBS Independents", "Mid-American", "Mountain West", "Pac-12",
+                           "SEC", "Sun Belt")) %>%
+  mutate(
+    slicenum = teams * avgRBS
+  )
+
+
+#Data Cleaning, Model Prep
+rushes <- rushes %>%
+  left_join(teams, by = c("def_pos_team" = "school"))
+
+rushes <- rushes %>%
+  rename(oppConf = conference.y)
+
+rushes <- rushes %>%
+  filter(conference.x %in% c("American Athletic", "ACC", "Big 12", "Big Ten", "Conference USA",
+                             "FBS Independents", "Mid-American", "Mountain West", "Pac-12",
+                             "SEC", "Sun Belt"))
+
+rushes <- rushes %>%
+  filter(conference.x %in% c("American Athletic", "ACC", "Big 12", "Big Ten", "Conference USA",
+                             "FBS Independents", "Mid-American", "Mountain West", "Pac-12",
+                             "SEC", "Sun Belt"))
+
+
+rushes <- rushes %>%
+  mutate(
+    qbRun = ifelse(position == "QB", 1, 0)
+  )
+
+
+rushes <- rushes %>%
+  mutate(
+    homeTeam = ifelse(pos_team == home, 1, 0)
+  )
+
+pass_strength <-
+  pbp |>
+  filter(pass == 1) %>%
+  dplyr::group_by(pos_team) |>
+  dplyr::summarise(pass_strength = mean(EPA, na.rm = TRUE))
+
+rushes <-
+  rushes |>
+  dplyr::inner_join(pass_strength, by = "pos_team") 
+
+
+qbRuns <- rushes %>%
+  filter(qbRun == 1) 
+
+
+rushesfilter <- rushes %>%
+  filter(qbRun == 0)
+
+
+rushesfilter <- rushesfilter %>%
+  select(game_id, id_play, rush_player_id, score_diff_start, qbRun, conference.x,passer_player_name, pos_team, oppConf, def_pos_team, homeTeam, rz_play, epa_success,
+         EPA, conference_game, stuffed_run, pass_strength)
+
+qbRuns <- qbRuns %>%
+  select(game_id, id_play, rush_player_id,score_diff_start, qbRun, conference.x, passer_player_name, pos_team, oppConf, def_pos_team, homeTeam, rz_play, epa_success,
+         EPA, conference_game, stuffed_run, pass_strength)
+
+rushStuffRate <- rushesfilter %>%
+  group_by(def_pos_team) %>%
+  summarise(
+    defStuffRate = mean(stuffed_run, na.rm = TRUE)
+  )
+qbStuffRate <- qbRuns %>%
+  group_by(def_pos_team) %>%
+  summarise(
+    defStuffRate = mean(stuffed_run, na.rm = TRUE)
+  )
+
+
+rushesfilter <-
+  rushesfilter |>
+  dplyr::inner_join(rushStuffRate, by = "def_pos_team") 
+
+qbRuns <-
+  qbRuns |>
+  dplyr::inner_join(qbStuffRate, by = "def_pos_team") 
+
+rushesfilter <- rushesfilter %>%
+  mutate(
+    rush_player_id = factor(rush_player_id),
+    pos_team = factor(pos_team),
+    def_pos_team = factor(def_pos_team),
+    oppConf = factor(oppConf)
+  )
+
+qbRuns <- qbRuns %>%
+  mutate(
+    rush_player_id = factor(rush_player_id),
+    pos_team = factor(pos_team),
+    def_pos_team = factor(def_pos_team),
+    oppConf = factor(oppConf)
+  )
+#QB and RB Rush Model Fit - maybe consider point differential to account for teams running it up late. no need to include sacks, maybe do a separate sack model
+qbrun_fit <-
+  lmer(EPA ~ 1 + (1 | rush_player_id) + homeTeam + pass_strength + rz_play + 
+         defStuffRate + score_diff_start + oppConf,,
+       data = qbRuns)
+
+summary(qbrun_fit)
+nonqb_run_fit <-
+  lmer(EPA ~ 1 + (1 | rush_player_id) + homeTeam + pass_strength + rz_play + 
+         defStuffRate + score_diff_start + oppConf,,
+       data = rushesfilter)
+
+summary(nonqb_run_fit)
 
 tmp_qbrun <- ranef(qbrun_fit)
 qbrun_effects <-
@@ -398,5 +397,4 @@ skill_war %>%
 qbwar %>%
   arrange(desc(war_qbrun)) %>%
   slice_head(n=10)
-
 
