@@ -1,4 +1,3 @@
----
 title: "CFB Rushing WAR: Which FBS RBs had the Biggest Impact on Winning Games in 2024?"
 date: "2025-10-08"
 output: html_document
@@ -20,7 +19,7 @@ library(lme4)
 
 Rushing offense is one of the most heavily analyzed aspects of football. The role and impact of a run game in an offense has changed significantly over the past decade. While its role in the NFL is becoming more well defined, college football rushing attacks are utilized in different ways, and one that has yet to be thoroughly evaluated within a quantitative lense. To do this, we aim to quantify Quarterback (QB) and Running Back (RB) impact through Expected Points Added (EPA) to understand individual QB and RB impacts to their teams expected points, and furthermore, their teams wins. We started by gathering play-by-play rushing data and contextual information on all FBS RB's and designed runs/scrambles from QB's from the 2024 regular season. Using past information on RB's and QB's as well as their EPA through the regular season, we aim to predict how much expected points they would add in the future, accounting for the conference they play in, defenses they faced, and other situational factors such as redzone plays, opposing rushing defense latent ability, offensive pass strength and home advantage. 
 
-From our framework, we were able to estimate how many points a QB and RB add over an "average" player, a replacement player. To calculate the value of a replacement level RB, we found the average number of RB's to appear in a game across each conference, and multiplied this value across the number of teams in each conference. Using this product as a threshold, we established that all players above this threshold in terms of snap count were considered non-replacement players, and all players below the threshold were classified as replacement players. Averaging our point estimates for all replacement players in each conference, we were able to establish how many points a replacement RB would add. For QB's, we considered the number of teams as the snap count threshold for replacement vs non replacement (i.e Big Ten has 18 teams, so the top 18 QB's in the Big Ten by snap count were considered non-replacement, and all other QB's were considered as replacement level players).  We then translated points to wins by estimating how much points and score differential have an impact on wins. Using both points added above replacement players by conference (IPAR), as well as wins above replacement players (WAR), we can analyze how much value QB's and RB's add through their rushing abilities. 
+From our framework, we were able to estimate how many points a QB and RB add over an "average" player and a replacement player. To calculate the value of a replacement level RB, we first found the average number of RB's to appear in a game across each conference. This number was between 4-6 across conferences, so we elected to use 4 for each conference to get a large enough sample size of replacemenet level players for each conference. We then  multiplied this value across the number of teams in each conference. Using this product as a threshold, we established that all players above this threshold in terms of snap count were considered non-replacement players, and all players below the threshold were classified as replacement players. Averaging our point estimates for all replacement players in each conference, we were able to establish how many points a replacement RB would add. For QB's, we considered the number of teams as the snap count threshold for replacement vs non replacement (i.e Big Ten has 18 teams, so the top 18 QB's in the Big Ten by snap count were considered non-replacement, and all other QB's were considered as replacement level players).  We then translated points to wins by estimating how much points and score differential have an impact on wins. Using both points added above replacement players by conference (IPAR), as well as wins above replacement players (WAR), we can analyze how much value QB's and RB's add through their rushing abilities. 
 
 
 # Technical Summary 
@@ -36,7 +35,7 @@ teams$conference[teams$school == "Notre Dame"] <- "Big Ten"
 teams$conference[teams$school == "UConn"] <- "ACC"
 ```
 
-We filtered the dataset to rushing plays from the regular season, ensured IDs were characters, and merged roster information to attach names and positions.
+We filtered the dataset to rushing plays from the regular season, ensured IDs were characters, and merged roster information to attach names and positions. For QB's, we elected to keep sacks as passing plays, and consider rushing plays as only designed runs and scrambles. This decision was made in order to isolate a QB's latent rushing skill and impact, rather than their ability to evade sacks, which we consider to be a unique skill that we don't have the necessary data to estimate. 
 
 ```{r}
 rushes <- pbp %>%
@@ -48,16 +47,6 @@ rushes$rush_player_id <- as.character(rushes$rush_player_id)
 
 
 ```{r, echo = FALSE}
-defeff <- rushes %>%
-  group_by(def_pos_team) %>%
-  summarise(
-    carries = n(),
-    efficiency = mean(EPA, na.rm = TRUE)
-  ) %>%
-  filter(carries >= 150) %>%
-  arrange((efficiency))
-
-
 rosterids <- rosters %>%
   mutate(
     name = paste(first_name, last_name, sep = " ")
@@ -76,7 +65,7 @@ teaminfo <- rosterids %>%
 ```
 
 
-We next defined replacement level players within each conference. RB thresholds were set at average roster depth × number of teams; QB thresholds equaled the number of teams in the conference. Players below thresholds were considered replacement level. 
+We next defined replacement level players within each conference. RB thresholds were calculated by finding the average # of RB's to appear for teams across each conference. This value ranged from 4-6 across conferences, but to get a large enough sample size for each conference and maintain consistency, we set that value to 4 × number of teams to get our threshold; QB thresholds equaled the number of teams in the conference. Players below thresholds were considered replacement level. 
 
 
 ```{r}
@@ -100,17 +89,17 @@ confrbs <- rbs %>%
   group_by(conference) %>%
   summarise(
     teams = n(),
-    avgRBS = 4
+    avgRBS = mean(RBS, na.rm = TRUE)
   ) %>%
   filter(conference %in% c("American Athletic", "ACC", "Big 12", "Big Ten", "Conference USA",
                            "FBS Independents", "Mid-American", "Mountain West", "Pac-12",
                            "SEC", "Sun Belt")) %>%
   mutate(
-    slicenum = teams * avgRBS
+    slicenum = teams * 4
   )
 ```
 
-We then added contextual variables: Opponent conference, QB run indicator, home field, passing strength of each offense, and opponent defensive stuff rate.
+We then added contextual variables: Opponent conference, whether or not the play was in the redzone, whether or not the possession team was the home team, passing strength (Passing EPA/Play) of each offense, opponent defensive stuff rate, and point differential before the corresponding play. 
 
 ```{r}
 rushes <- rushes %>%
@@ -224,7 +213,7 @@ nonqb_run_fit <-
 summary(nonqb_run_fit)
 ```
 
-From these models, we extracted Impact Per Attempt (IPA) for each player, then multiplied by usage (number of attempts) to compute Impact Per Attempt Accumulated (IPAA).
+From these models, we extracted Individual Points Added (IPA) on the ground for each player, then multiplied by usage (number of attempts) to compute Individual Points Added above Average (IPAA).
 
 ```{r}
 tmp_qbrun <- ranef(qbrun_fit)
@@ -281,6 +270,8 @@ qbrun_ipaa |>
   dplyr::arrange(dplyr::desc(ipaa_qbrun)) |>
   dplyr::slice_head(n = 25)
 ```
+
+Our IPAA calculation gave us an indicator of how many individual points an RB and QB added over a global average intercept from a larger population of RB's and QB's. Thus, our next step was to identify a "replacement" level player across each conference to get a better estimate of a player's future impact above or below this replacement level. From our definition of a replacement player in the executive summary, we averaged the IPAA for all players falling below our conference level thresholds for QB's and RB's to determine our next metric, Individual Points Above Average (IPAR), which is calculated by subtracting a player's IPAA by a replacement player (# of attempts x average IPA for replacement player) for each conference, for both QB's and RB's.   
 
 ```{r}
 #RB IPAR calculation
@@ -369,7 +360,7 @@ qbrun_ipar <-
     qb_ipar = ipaa_qbrun - shadow_qbrun)
 ```
 
-
+Now that we had a determined how many points RB's and QB's can add on the ground above a replacement player, our next goal was to determine how we can connect this to the wins these players added over a replacement player. We calculated the point differential across all FBS games in 2024, and regressed a model on wins for FBS teams. This provided us with a beta coefficient to convert our IPAR from the point scale to a wins scale. Upon fitting our model, we multiplied the coefficient to IPAR generated by each RB and QB, giving us our final Wins Above Replacement (WAR) metric. 
 
 ```{r}
 games = load_cfb_schedules(2024) %>% 
