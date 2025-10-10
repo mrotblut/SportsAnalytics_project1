@@ -521,16 +521,6 @@ qbwar <-
     war_qbrun = qb_ipar * points_to_win)
 ```
 
-```{r}
-skill_war %>%
-  arrange(desc(war_run)) %>%
-  slice_head(n=10)
-
-qbwar %>%
-  arrange(desc(war_qbrun)) %>%
-  slice_head(n=10)
-```
-
 The final tables show the RBs and QBs who contributed most to team wins through rushing in 2024.
 
 ```{r}
