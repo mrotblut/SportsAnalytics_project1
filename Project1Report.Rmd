@@ -1,10 +1,11 @@
 ---
+title: "CFB Rushing WAR: Which FBS RBs had the Biggest Impact on Winning Games in 2024?"
+date: "2025-10-08" 
+output: html_document
 ---
 
-title: "CFB Rushing WAR: Which FBS RBs had the Biggest Impact on Winning Games in 2024?" date: "2025-10-08" output: html_document ---
-
 {r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, warning = FALSE, mesage = FALSE)
+knitr::opts_chunk$set(warning = FALSE, mesage = FALSE)
 
 {r, echo = FALSE}
 library(dplyr)
