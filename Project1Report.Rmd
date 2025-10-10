@@ -1,3 +1,6 @@
+---
+---
+
 title: "CFB Rushing WAR: Which FBS RBs had the Biggest Impact on Winning Games in 2024?" date: "2025-10-08" output: html_document ---
 
 {r setup, include=FALSE}
@@ -10,6 +13,8 @@ library(espnscrapeR)
 library(tidyverse)
 library(lme4)
 library(ggimage)
+library(gt)
+library(gtExtras)
 
 Executive Summary
 
@@ -28,6 +33,20 @@ teams <- cfbd_team_info()
 pbp <- load_cfb_pbp(seasons = 2024)
 teams$conference[teams$school == "Notre Dame"] <- "Big Ten"
 teams$conference[teams$school == "UConn"] <- "ACC"
+logos = data.frame(
+  conference = c("ACC","American Athletic", "Big 12","Big Ten", "Conference USA", "FBS Independents", "Mid-American", "Mountain West", "Pac-12", "SEC", "Sun Belt"),
+  logo = c("https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/1.png&transparent=true&w=30&h=30",
+           "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/151.png&transparent=true&w=30&h=30",
+           "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/4.png&transparent=true&w=30&h=30",
+           "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/5.png&transparent=true&w=30&h=30",
+           "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/12.png&transparent=true&w=30&h=30",
+           "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/18.png&transparent=true&w=30&h=30",
+           "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/15.png&transparent=true&w=30&h=30",
+           "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/17.png&transparent=true&w=30&h=30",
+           "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/9.png&transparent=true&w=30&h=30",
+           "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/8.png&transparent=true&w=30&h=30",
+           "https://a.espncdn.com/combiner/i?img=/i/teamlogos/ncaa_conf/500/37.png&transparent=true&w=30&h=30")
+)
 
 We filtered the dataset to rushing plays from the regular season, ensured IDs were characters, and merged roster information to attach names and positions. For QB's, we elected to keep sacks as passing plays, and consider rushing plays as only designed runs and scrambles. This decision was made in order to isolate a QB's latent rushing skill and impact, rather than their ability to evade sacks, which we consider to be a unique skill that we don't have the necessary data to estimate.
 
@@ -126,7 +145,18 @@ rbs <- rushes %>%
   arrange(pos_team, desc(rush_attempts)) %>%
   filter(!is.na(rusher_player_name))
 
-ggplot(rbs)+
+rbsgraph <- rbs %>%
+  group_by(conference) %>% 
+  summarize(
+    avg_epa_conf = mean(total_rush_epa, na.rm = TRUE, .groups = "drop")
+  ) %>% 
+  filter(conference %in% c("American Athletic", "ACC", "Big 12", "Big Ten", "Conference USA",
+                           "Mid-American", "Mountain West", "Pac-12",
+                           "SEC", "Sun Belt")) %>% 
+  left_join(logos)
+
+
+ggplot(rbsgraph)+
   geom_image(aes(x = conference, y=avg_epa_conf, image = logo), position = position_jitter(height = .2))+
   theme_bw()+
   theme(axis.text.x = element_blank(),
@@ -184,7 +214,7 @@ rushesfilter <- rushes %>%
 
 {r, echo = FALSE}
 rushesfilter <- rushesfilter %>%
-  filter(position == "RB")
+  filter(position == "RB") %>%
   select(game_id, id_play, rush_player_id, score_diff_start, qbRun, conference.x,passer_player_name, pos_team, oppConf, def_pos_team, homeTeam, rz_play, epa_success,
          EPA, conference_game, stuffed_run, pass_strength)
 
@@ -487,13 +517,86 @@ qbwar %>%
 The final tables show the RBs and QBs who contributed most to team wins through rushing in 2024.
 
 {r}
-skill_war %>%
-  arrange(desc(war_run)) %>%
-  slice_head(n=10)
+rbwarout <- skill_war %>%
+  left_join(rosters, by = "athlete_id")
 
-qbwar %>%
+rbwarinfo <- rbwarout %>%
+  left_join(teams, by = c("team.x" = "school"))
+
+rbwar <- rbwarout %>%
+  dplyr::select(
+    name,
+    headshot_url,
+    team.x,
+    n_run,
+    ipar_run,
+    war_run
+  ) %>%
+  mutate(
+    ipar_run = round(ipar_run, 2),
+    war_run = round(war_run, 2)
+  ) %>%
+  arrange(desc(war_run)) %>%
+  slice_head(n=10) %>%
+  gt() %>%
+  cols_align(align = "center") %>%
+  cols_label(
+    name = "Name",
+    headshot_url = "",
+    team.x = "Team",
+    n_run = "Rush Attempts",
+    ipar_run = "IPAR",
+    war_run = "Rush War"
+  ) %>%
+  tab_header(
+    title = "CFB RB WAR",
+    subtitle = "Data and Output From 2024 Regular Season"
+  ) %>%
+  gtExtras::gt_theme_538()
+rbwar <- gt_hulk_col_numeric(rbwar, column = "war_run")
+rbwar <- gt_img_rows(rbwar, column = "headshot_url")
+
+rbwar
+
+
+qbwarout <- qbwar %>%
+  left_join(rosters, by = "athlete_id")
+
+qbwartbl <- qbwarout %>%
+  dplyr::select(
+    name,
+    headshot_url,
+    team.x,
+    n_qbrun,
+    qb_ipar,
+    war_qbrun
+  ) %>%
+  mutate(
+    qb_ipar = round(qb_ipar, 2),
+    war_qbrun = round(war_qbrun, 2)
+  ) %>%
   arrange(desc(war_qbrun)) %>%
-  slice_head(n=10)
+  slice_head(n=10) %>%
+  gt() %>%
+  cols_align(align = "center") %>%
+  cols_label(
+    name = "Name",
+    headshot_url = "",
+    team.x = "Team",
+    n_qbrun = "Rush Attempts",
+    qb_ipar = "IPAR",
+    war_qbrun = "Rush War"
+  ) %>%
+  tab_header(
+    title = "CFB QB WAR on Designed Runs and Scrambles",
+    subtitle = "Data and Output From 2024 Regular Season"
+  ) %>%
+  gtExtras::gt_theme_538()
+qbwartbl <- gt_hulk_col_numeric(qbwartbl, column = "war_qbrun")
+qbwartbl <- gt_img_rows(qbwartbl, column = "headshot_url")
+
+qbwartbl
+
 
 There are a few limitations of this model that need to be noted. This WAR metric only accounts for rushing, not passing or receiving due to lack of play-by-play data provided at the college level. Since there are only 2 independent teams, Notre Dame was moved to Big Ten and UConn was moved to ACC. Replacement thresholds are heuristics; applying different definitions of replacement could change the results.The linear mixed-effects model does not capture interactive variables such as QB mobility vs defensive schemes. Only the regular season statistics were used during this development.
 
