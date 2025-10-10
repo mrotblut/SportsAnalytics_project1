@@ -465,16 +465,6 @@ qbwar %>%
   slice_head(n=10)
 ```
 
-Limitations:
+There are a few limitations of this model that need to be noted. This WAR metric only accounts for rushing, not passing or receiving due to lack of play-by-play data provided at the college level. Since there are only 2 independent teams, Notre Dame was moved to Big Ten and UConn was moved to ACC. Replacement thresholds are heuristics; applying different definitions of replacement could change the results.The linear mixed-effects model does not capture interactive variables such as QB mobility vs defensive schemes. Only the regular season statistics were used during this development.
 
-- This WAR metric only accounts for rushing, not passing or receiving due to lack of play-by-play data provided at the college level. 
-
-- Since there are only 2 independent teams, Notre Dame was moved to Big Ten and UConn was moved to ACC. 
-
-- Replacement thresholds are heuristics; applying different definitions of replacement could change the results.
-
-- The linear mixed-effects model does not capture interactive variables such as QB mobility vs defensive schemes.
-
-- Only the regular season statistics were used during this development.
-
-Next Steps:
+In the future, we are interested in implementing blocking/offensive line performance into our model to account for how o-line play affects rushing production. Another key piece of the offense that we should include are receiving and passing plays for full evaluation of the offense, however we do not have enough data to accurately observe these variables right now. A direction we could go in this point of time would be to compare year-over-year changes rather than just looking at one season of rushing data. 
