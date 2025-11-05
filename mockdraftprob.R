@@ -131,8 +131,6 @@ cat("N = ", N, " D = ", D, "\n")
 
 cat("P(Saquon available at pick 11 | Saquon not taken in top-3) = ", round(100*N/D, digits = 3), "%\n")
 
-gmtrends <- read_excel("NFL Historical Draft Data and GM Trends.xlsx")
-
 
 
 
