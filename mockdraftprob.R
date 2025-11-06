@@ -307,4 +307,43 @@ Rankings <- displaylambdas %>%
 
   Rankings
   
+# Draft order chart 
+final_order <- c()
+
+for (pick in names(results_df)) {
+  pick_counts <- sort(table(results_df[[pick]]), decreasing = TRUE)
+  
+  for (player in names(pick_counts)) {
+    if (!(player %in% final_order)) {
+      final_order <- c(final_order, player)
+      break
+    }
+  }
+}
+
+
+draft_order_df <- data.frame(
+  Pick = seq_along(final_order),
+  Player = final_order,
+  stringsAsFactors = FALSE
+)
+plot_df <- draft_order_df %>% 
+  slice_head(n=10) %>% 
+  left_join(mean_pick_df) %>% 
+  select(Pick,Player,Mean_Pick)
+plot_df$Mean_Pick = round(plot_df$Mean_Pick, 2)
+plot_df %>% 
+  gt() %>%
+  cols_align(align = "center") %>%
+  cols_label(
+    Pick = "Pick",
+    Player = "Player",
+    Mean_Pick = "Mean Pick"
+  ) %>%
+  tab_header(
+    title = "Top 10 picks",
+  subtitle = "Based on who was picked the most at each pick"
+  ) %>% 
+  gtExtras::gt_theme_538()
+
 
