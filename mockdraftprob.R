@@ -26,7 +26,7 @@ raw_data <- raw_data %>%
   )
 
 expert_data <- raw_data %>%
-  filter(type == "Expert")
+  filter(type == "Expert", !is.na(Consensus.Rank))
 
 ranking_matrix <- expert_data %>%
   select(site, date, name, pick, url) %>%
