@@ -1,0 +1,172 @@
+---
+title: "Mock 2018 NFL Draft"
+date: "2025-11-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE, warning=FALSE, include=FALSE}
+library(PlackettLuce)
+library(dplyr)
+library(tidyverse)
+library(mclust)
+library(readxl)
+```
+
+# Executive Summary
+
+# Technical Report
+
+We started with reading in two datasets, the first dataset is the first three rounds of mock drafts, we filtered this data to only include drafts by experts, including people from the NFL network and others. The second dataset is a consensus rank of the top 50 players, we did some data cleaning to make sure the players name in the datasets are the same.
+
+```{r}
+raw_data <- read.csv("three_round_mocks.csv")
+
+consensus <- read.csv("479 NFL Team Needs - Sheet2 (1).csv")
+```
+
+We then combined these datasets and added two columns for classifications, a premium column if a player is a QB, WR, OT, DE, CB, and a second column to denote a QB.
+
+```{r, echo=FALSE}
+
+consensus$Player[consensus$Player == "Quenten Nelson"] <- "Quenton Nelson"
+consensus$Player[consensus$Player == "Lamar Jackson"] <- "Lamar Jackson (LOU)"
+consensus$Player[consensus$Player == "Josh Allen"] <- "Josh Allen (WYO)"
+consensus$Player[consensus$Player == "Mo Hurst"] <- "Maurice Hurst"
+consensus$Player[consensus$Player == "DJ Moore"] <- "D.J. Moore"
+consensus$Player[consensus$Player == "Lamar Jackson"] <- "Lamar Jackson (LOU)"
+
+raw_data <- raw_data %>%
+  left_join(consensus, by = c("name" = "Player"))
+
+raw_data <- raw_data %>%
+  mutate(
+    premium = ifelse(position %in% c("QB", "WR", "OT", "DE", "CB"), 1, 0),
+    qb = ifelse(position == "QB", 1, 0)
+  )
+
+expert_data <- raw_data %>%
+  filter(type == "Expert", !is.na(Consensus.Rank))
+```
+
+In order to prepare the data to be used in a Plackett Luce model, we converted the expert mock drafts into a ranking matrix, and converted it into a features dataframe.
+
+```{r}
+ranking_matrix <- expert_data %>%
+  select(site, date, name, pick, url) %>%
+  pivot_wider(names_from = name, values_from = pick) %>%
+  select(-all_of(c("date", "url", "site"))) %>%
+  mutate_all(~replace(., lengths(.)==0, NA)) %>%
+  as.matrix()
+
+mock_rankings <- as.rankings(x = ranking_matrix)
+
+item_names <- colnames(ranking_matrix)
+features_item <- expert_data %>%
+  distinct(name, position, qb, Consensus.Rank) %>%   
+  filter(name %in% item_names) %>%      
+  right_join(tibble(name = item_names), by = "name") %>%
+  filter(!is.na(Consensus.Rank))
+```
+
+We then used this data to train a Plackett Luce Model with no covarients.
+
+```{r}
+fit <- PlackettLuce(rankings = mock_rankings)
+lambda_hat <- coef(fit)
+print(lambda_hat)
+```
+
+We refined this model to include whether or not the player is a QB and their consensus rank.
+
+```{r}
+standardPL <- pladmm(mock_rankings, ~qb + Consensus.Rank, data = features_item)
+
+
+lambda_hat <- itempar(standardPL)
+
+print(lambda_hat)
+
+summary(standardPL)
+```
+
+We then used this to run a simulation of the first round of 100,000 drafts
+
+```{r}
+n_sims <- 1e5
+results <- array(dim = c(n_sims, 32))
+
+for(r in 1:n_sims){
+  set.seed(479 + 3*r)
+  
+  selected_players <- rep(NA, times = 32)
+  available_players <- players
+  
+  for(i in 1:32){
+    available_players <- players[!players %in% selected_players]
+    probs <- (x = lambda_hat[available_players])
+    names(probs) <- available_players
+    pick <- sample(x = available_players, size = 1, prob = probs)
+    selected_players[i] <- pick
+  }
+  results[r,] <- selected_players
+}
+```
+
+These are the top 10 drafted players from those 100,000 drafts
+
+```{r, echo=FALSE}
+results_df <- as.data.frame(results)
+colnames(results_df) <- paste0("Pick_", 1:32)
+
+long_results <- results_df |>
+  mutate(Simulation = 1:n()) |>
+  pivot_longer(cols = starts_with("Pick_"),
+               names_to = "Pick",
+               values_to = "Player") |>
+  mutate(Pick = as.integer(gsub("Pick_", "", Pick)))
+
+mean_pick_df <- long_results |>
+  group_by(Player) |>
+  summarise(
+    Mean_Pick = mean(Pick, na.rm = TRUE),
+    Median_Pick = median(Pick, na.rm = TRUE),
+    SD_Pick = sd(Pick, na.rm = TRUE)
+  ) |>
+  arrange(Mean_Pick)
+
+head(mean_pick_df,10)
+
+resultscheck <- mean_pick_df %>%
+  left_join(consensus, by = "Player")
+
+player_picked <- function(x, player, pick){
+  return(player %in% x[1:pick])
+}
+
+mult_players_picked <- function(x, players, pick){
+  return(any(players %in% x[1:pick]))
+}
+
+players_all_picked <- function(x, players, pick){
+  return(all(players %in% x[1:pick]))
+}
+```
+
+```{r}
+players_all_picked(x = results[1,], player = c("Sam Darnold", "Josh Rosen", "Baker Mayfield"), pick = 5)
+
+allqbs <- apply(X = results, MARGIN = 1, FUN = players_all_picked, player = c("Sam Darnold", "Josh Rosen", "Baker Mayfield"), pick = 5)
+mean(allqbs)
+
+saquon_pick10 <- apply(X = results, MARGIN = 1, FUN = player_picked, player = "Saquon Barkley", pick = 10)
+N <- sum(!saquon_pick10)
+D <- sum(!saquon_pick3)
+
+cat("N = ", N, " D = ", D, "\n")
+
+cat("P(Saquon available at pick 11 | Saquon not taken in top-3) = ", round(100*N/D, digits = 3), "%\n")
+```
