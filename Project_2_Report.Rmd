@@ -16,6 +16,7 @@ library(dplyr)
 library(tidyverse)
 library(mclust)
 library(readxl)
+library(ggplot2)
 ```
 
 # Executive Summary
@@ -172,6 +173,8 @@ Rankings
 
 Using the softmax function (normalizes the exponentiated predicted lambda hat values), we simulated the first round of the draft 100,000 times where each player is selected from a list of available players, then selected and stored in the results list. We take this step to eventually measure the likelihood of player's being taken in certain draft slots, and predicting availibility in future slots. 
 
+Below is an example of the distribution of how often a player (Saquon Barkley in this case) was drafted at each pick throughout 100,000 simulations. 
+
 ```{r}
 n_sims <- 1e5
 results <- array(dim = c(n_sims, 32))
@@ -191,6 +194,32 @@ for(r in 1:n_sims){
   }
   results[r,] <- selected_players
 }
+```
+
+long_results %>%
+  filter(Player == "Saquon Barkley") %>%
+  ggplot(aes(x = factor(Pick))) +
+  geom_bar(fill = "darkblue", color = "red", alpha = 0.75) +
+  geom_vline(aes(xintercept = mean(as.numeric(Pick))),
+             color = "green", linetype = "dashed", size = 1) +
+  annotate("text",
+           x = mean(long_results$Pick[long_results$Player == "Saquon Barkley"]) + 1,
+           y = 5000, label = "Mean Pick", color = "green", hjust = 0, size = 4.5) +
+  labs(
+    title = "Saquon Barkley's Simulated Draft Position Distribution",
+    subtitle = "Each bar corresponds to a simulated pick number",
+    x = "Pick Number",
+    y = "Frequency"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "gray40"),
+    axis.title = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank()
+  )
+
 ```
 
 From our simulation, Figure 2 displays the players that were picked the most at each respective slot the most, as well as their mean pick. 
@@ -400,3 +429,4 @@ ggplot(bakerdf, aes(x = factor(pick), y = probability)) +
 ```
 
 While this is a good first step into quantifying the NFL Draft, there are a few steps that can be taken to develop this even further. Our rankings are only using the top 50 players from the consensus board, so this simulation is much more limited. Furthermore, we are only consider player-based traits, like their consensus board rank and position. Team need is a critical factor that is also considered in draft decisions, which our model does not include yet. Furthermore, coming up with a way to incorporate the date of the mock draft in our model would help improve accuracy and results (mock drafts tend to have more signal in predicting the actual outcome of the NFL Draft as they get closer to the day of the draft). With these improvements, this analysis could be used to give live draft-day insights for scenarios like the Jets-Colts trade, and estimate the lieklihood of draft targets being available at certain draft slots. This can also be applied in any other sport that has a draft.
+
