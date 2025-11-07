@@ -1,7 +1,9 @@
 ---
-title: "Mock 2018 NFL Draft"
+title: "Simulating the 2018 NFL Draft"
 date: "2025-11-05"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -18,9 +20,13 @@ library(readxl)
 
 # Executive Summary
 
+The NFL Draft is one of the most important events during the football season. Teams have a chance to infuse their roster with college football's most talented players. Draft day strategy has become a large part of front office operations, and draft picks are an extremely valuable resource not just for selecting college players, but using as leverage in trades between teams as well. The NFL Draft's popularity made its way to the media, where insiders, experts and fans all create mock drafts", where they input picks for each based on what they think might happen in the draft. 
+
+Over the past few years, teams have started utilizing these mock drafts as a "wisdom of the crowd" strategy, where they are aggregating hundreds of mock drafts and rankings to come up with a quantifiable consensus order and desirability of each player in these mock drafts. In this analysis, we take a similar approach using expert mock drafts from the 2018 NFL Draft,  
+
 # Technical Report
 
-We started with reading in two datasets, the first dataset is the first three rounds of mock drafts, we filtered this data to only include drafts by experts, including people from the NFL network and others. The second dataset is a consensus rank of the top 50 players, we did some data cleaning to make sure the players name in the datasets are the same.
+We started by loading in the required libraries and reading in two datasets. The first dataset contains various scraped mock draft data of up to the first three rounds of the 2019 NFL Draft. We filtered this data to only include drafts by experts, including people from the NFL network and others. The second dataset is a consensus big board rank of the top 50 prospects, pulled from Jack Lichtenstein's Consensus Big Board Shiny App.
 
 ```{r}
 raw_data <- read.csv("three_round_mocks.csv")
@@ -28,7 +34,7 @@ raw_data <- read.csv("three_round_mocks.csv")
 consensus <- read.csv("479 NFL Team Needs - Sheet2 (1).csv")
 ```
 
-We then combined these datasets and added two columns for classifications, a premium column if a player is a QB, WR, OT, DE, CB, and a second column to denote a QB.
+After combining the datasets, we started by filtering out all players that weren't ranked in the top 50 Consensus Board. We then wanted to explore player attributes to help develop covariates for our model. We extracted positional information from each player, whether or not they played a premium position (Premium - QB, WR, OT, DT, DE, CB), and then another column that checks whether or not the player was a QB.
 
 ```{r, echo=FALSE}
 
@@ -44,7 +50,7 @@ raw_data <- raw_data %>%
 
 raw_data <- raw_data %>%
   mutate(
-    premium = ifelse(position %in% c("QB", "WR", "OT", "DE", "CB"), 1, 0),
+    premium = ifelse(position %in% c("QB", "WR", "OT", "DT", "DE", "CB"), 1, 0),
     qb = ifelse(position == "QB", 1, 0)
   )
 
@@ -52,7 +58,7 @@ expert_data <- raw_data %>%
   filter(type == "Expert", !is.na(Consensus.Rank))
 ```
 
-In order to prepare the data to be used in a Plackett Luce model, we converted the expert mock drafts into a ranking matrix, and converted it into a features dataframe.
+In order to prepare the data to be used in a PlackettLuce model, we transformed the expert mock drafts dataframe into a ranking matrix. Because of the amount of QB's in the top 50 and the unique nature of drafting QBs in the first round, we chose to use the QB column in our model.
 
 ```{r}
 ranking_matrix <- expert_data %>%
@@ -72,28 +78,99 @@ features_item <- expert_data %>%
   filter(!is.na(Consensus.Rank))
 ```
 
-We then used this data to train a Plackett Luce Model with no covarients.
+We first used our rankings to train a baseline PlackettLuce model that had no additional covariates. 
 
 ```{r}
 fit <- PlackettLuce(rankings = mock_rankings)
 lambda_hat <- coef(fit)
-print(lambda_hat)
+players <- names(lambda_hat)
+players
+probs <- exp(lambda_hat[players])/sum(exp(lambda_hat[players]))
+print(probs)
+
+rawLambdas <- data.frame(
+  Name = names(lambda_hat),
+  Probs = (probs)
+) %>%
+arrange(desc(Probs)) %>%
+slice_head(n = 10)
+
+rawLambdas
 ```
 
-We refined this model to include whether or not the player is a QB and their consensus rank.
+We refined this model to include whether or not the player is a QB and their consensus rank. Figure 1 shows the latent player desirabilities based on the mock drafts and our covariates, essentially showing the likelihood of each player being selected first overall. Comparing this to the results from the base PlackettLuce, we immediately see the increased value in QB's, as the top 3 QB's by the Big Board Ranking are now all in the top 3 of 1st pick probability as well. 
 
 ```{r}
 standardPL <- pladmm(mock_rankings, ~qb + Consensus.Rank, data = features_item)
-
-
-lambda_hat <- itempar(standardPL)
-
-print(lambda_hat)
-
 summary(standardPL)
+
+lambda_hat <- predict(standardPL)
+
+sum(lambda_hat)
+
+covprobs <- exp(lambda_hat[players])/sum(exp(lambda_hat[players]))
+print(covprobs)
+
+finallambdas <- data.frame(
+  Name = names(lambda_hat),
+  Probs = (covprobs)
+)
+
+rownames(finallambdas) <- NULL
+
+finallambdas <- finallambdas %>%
+  arrange(desc(Probs))
+
+displaylambdas <- finallambdas %>%
+  slice_head(n = 10)
+
+headshotsoff <- load_player_stats(seasons = 2019, stat_type = "offense")
+headshotsdef <- load_player_stats(seasons = 2019, stat_type = "defense")
+headshots <- rbind(headshotsoff, headshotsdef, fill = TRUE)
+
+headshots <- headshots %>%
+  filter(player_display_name %in% c("Josh Rosen", "Sam Darnold", "Baker Mayfield",
+                                    "Saquon Barkley", "Quenton Nelson", "Bradley Chubb",
+                                    "Roquan Smith", "Lamar Jackson", "Derwin James",
+                                    "Minkah Fitzpatrick"))
+headshots$player_display_name[headshots$player_display_name == "Lamar Jackson"] <- "Lamar Jackson (LOU)"
+
+
+displaylambdas <- displaylambdas %>%
+  left_join(headshots, by = c("Name" = "player_display_name")) %>%
+  select(Name, position_group, headshot_url, Probs) 
+
+displaylambdas <- displaylambdas %>%
+  distinct(Name, .keep_all = TRUE)
+
+displaylambdas$Name[displaylambdas$Name == "Lamar Jackson (LOU)"] <- "Lamar Jackson"
+#Latent Ability Rankings
+Rankings <- displaylambdas %>%
+  mutate(
+    Probs = 100 * round(Probs, 2)
+  ) %>%
+  arrange(desc(Probs)) %>%
+  gt() %>%
+  cols_align(align = "center") %>%
+  cols_label(
+    Name = "Name",
+    position_group = "Position",
+    headshot_url = "",
+    Probs = "Probabilities (%)"
+  ) %>%
+  tab_header(
+    title = "Player Rankings Using Expert Mock Drafts",
+    subtitle = "Rank - Probability of Player Being Selected 1st Overall"
+  ) %>%
+  gtExtras::gt_theme_538()
+Rankings <- gt_hulk_col_numeric(Rankings, column = "Probs")
+Rankings <- gt_img_rows(Rankings, column = "headshot_url")
+
+
+Rankings
 ```
 
-We then used this to run a simulation of the first round of 100,000 drafts
+Using the softmax function (normalizes the exponentiated predicted lambda hat values), we simulated the first round of the draft 100,000 times where each player is selected from a list of available players, then selected and stored in the results list. We take this step to eventually measure the likelihood of player's being taken in certain draft slots, and predicting availibility in future slots. 
 
 ```{r}
 n_sims <- 1e5
@@ -116,7 +193,7 @@ for(r in 1:n_sims){
 }
 ```
 
-These are the top 10 drafted players from those 100,000 drafts
+From our simulation, Figure 2 displays the players that were picked the most at each respective slot the most, as well as their mean pick. 
 
 ```{r, echo=FALSE}
 results_df <- as.data.frame(results)
@@ -138,11 +215,54 @@ mean_pick_df <- long_results |>
   ) |>
   arrange(Mean_Pick)
 
-head(mean_pick_df,10)
+final_order <- c()
+
+for (pick in names(results_df)) {
+  pick_counts <- sort(table(results_df[[pick]]), decreasing = TRUE)
+  
+  for (player in names(pick_counts)) {
+    if (!(player %in% final_order)) {
+      final_order <- c(final_order, player)
+      break
+    }
+  }
+}
+
+
+draft_order_df <- data.frame(
+  Pick = seq_along(final_order),
+  Player = final_order,
+  stringsAsFactors = FALSE
+)
+plot_df <- draft_order_df %>% 
+  slice_head(n=10) %>% 
+  left_join(mean_pick_df) %>% 
+  select(Pick,Player,Mean_Pick)
+plot_df$Mean_Pick = round(plot_df$Mean_Pick, 2)
+plot_df %>% 
+  gt() %>%
+  cols_align(align = "center") %>%
+  cols_label(
+    Pick = "Pick",
+    Player = "Player",
+    Mean_Pick = "Mean Pick"
+  ) %>%
+  tab_header(
+    title = "Top 10 picks",
+    subtitle = "Based on who was picked the most at each pick"
+  ) %>% 
+  gtExtras::gt_theme_538()
+
 
 resultscheck <- mean_pick_df %>%
   left_join(consensus, by = "Player")
 
+
+```
+
+To apply our simulation and model, we start by creating helper functions that define various scenarios. These functions return whether or not a player was picked within a range of picks or exactly at a certain draft slot. We also defined functions that tell us if all or any of a certain group of players were taken in a range of picks. 
+
+```{r}
 player_picked <- function(x, player, pick){
   return(player %in% x[1:pick])
 }
@@ -154,19 +274,129 @@ mult_players_picked <- function(x, players, pick){
 players_all_picked <- function(x, players, pick){
   return(all(players %in% x[1:pick]))
 }
+
+players_all_available <- function(x, players, pick){
+  return(all(!players %in% x[1:pick]))
+}
+
+player_picked_exact <- function(x, player, pick) {
+  return(x[pick] == player)
+}
 ```
+
+One scenario in particular that we wanted to observe from the 2018 NFL Draft was the Jets-Colts trade. In this, the Jets traded away multiple picks in the first two rounds in 2018 and 2019, including the 6th pick of the 2018 NFL Draft in exchange the 3rd pick from the Colts, which they ended up using on Sam Darnold (after Baker Mayfield went 1st overall). The Jets were desperate for a QB in 2018, and likely traded up to ensure that they had a chance to select the top QB on their draft board. The top 3 QB's in according to the consensus big board were Josh Rosen (5), Sam Darnold (9), and Baker Mayfield (11). Using our helper functions, we can see the number of times certain events occured in the simulation, and use that probability to to quantify such decisions.
+
+We start by measuring probabilities of one of the 3 being available after the first 5 picks whether Jets would have originally picked had they not traded up. Our simulation shows that there was a ~88% chance at least one of the top 3 would have been available for the Jets had they stayed put at 6, as well as a 55% chance of Darnold being available at 6 as well. 
+
+Furthermore, we can attempt to quantify the "runs" on certain positions by observing conditional probabilities (given Baker Mayfield went first overall, what is the likelihood Sam Darnold gets taken at pick 2, 3, 4 and 5?). Since the Jets ended up selecting Darnold after Mayfield, bypassing Rosen, we assume that these were there top two QBs. We can estimate the impact of Mayfield being selected first overall by viewing the probability of Darnold being available after the next 4 picks, given Mayfield going first, and vice versa. Our results indicate that the Jets should have likely been more cautious before trading up, or at least waited until roughly pick 4 to trade up, to ensure they have a ~70% chance of being able to select Darnold after Mayfield ended up going first. 
 
 ```{r}
-players_all_picked(x = results[1,], player = c("Sam Darnold", "Josh Rosen", "Baker Mayfield"), pick = 5)
+Darnold <- apply(X = results, MARGIN = 1, FUN = player_picked, player = c("Sam Darnold"), pick = 5)
+Rosen <- apply(X = results, MARGIN = 1, FUN = player_picked, player = c("Josh Rosen"), pick = 5)
+Baker <- apply(X = results, MARGIN = 1, FUN = player_picked, player = c("Baker Mayfield"), pick = 5)
 
-allqbs <- apply(X = results, MARGIN = 1, FUN = players_all_picked, player = c("Sam Darnold", "Josh Rosen", "Baker Mayfield"), pick = 5)
-mean(allqbs)
+Pick1Qb <- apply(X = results, MARGIN = 1, FUN = mult_players_picked, player = c("Sam Darnold", "Josh Rosen", "Baker Mayfield", "Josh Allen (WYO)", "Lamar Jackson (LOU)"), pick = 1)
+mean(Pick1Qb)
 
-saquon_pick10 <- apply(X = results, MARGIN = 1, FUN = player_picked, player = "Saquon Barkley", pick = 10)
-N <- sum(!saquon_pick10)
-D <- sum(!saquon_pick3)
+baker1 <- apply(X = results, MARGIN = 1, FUN = player_picked_exact, player = c("Baker Mayfield"), pick = 1)
+darnold1 <- apply(X = results, MARGIN = 1, FUN = player_picked_exact, player = c("Sam Darnold"), pick = 1)
 
-cat("N = ", N, " D = ", D, "\n")
+AllQBs <- apply(X = results, MARGIN = 1, FUN = players_all_available, player = c("Sam Darnold", "Josh Rosen", "Baker Mayfield"), pick = 5)
+NoQBs <- apply(X = results, MARGIN = 1, FUN = players_all_picked, player = c("Sam Darnold", "Josh Rosen", "Baker Mayfield"), pick = 5)
 
-cat("P(Saquon available at pick 11 | Saquon not taken in top-3) = ", round(100*N/D, digits = 3), "%\n")
+mean(AllQBs)
+mean(NoQBs)
+
+
+graphDF <- data.frame(
+  names = c("Baker Mayfield", "Sam Darnold", "Josh Rosen"),
+  probs = c(mean(!Baker), mean(!Darnold), mean(!Rosen))
+) 
+
+
+totalDF <- data.frame(
+  types = c("At Least 1 QB Available","All QB's Available",  "None of the QB's Available"),
+  probs = c( mean(!AllQBs), mean(AllQBs), mean(NoQBs))
+)
+
+
+
+picks <- 2:5
+
+
+bakerprobs <- sapply(picks, function(p) {
+  subset_results <- results[darnold1, ]
+  mean(apply(subset_results, 1, players_all_available, player = "Baker Mayfield", pick = p))
+})
+
+samprobs <- sapply(picks, function(p) {
+  subset_results <- results[baker1, ]
+  mean(apply(subset_results, 1, players_all_available, player = "Sam Darnold", pick = p))
+})
+
+bakerdf <- data.frame(
+  pick = picks,
+  probability = bakerprobs
+)
+
+samdf <- data.frame(
+  pick = picks,
+  probability = samprobs
+)
+
+library(ggplot2)
+ggplot(graphDF, aes(x = reorder(names, -probs), y = probs, fill = names)) +
+  geom_col(width = 0.6, alpha = 0.8) +
+  geom_text(aes(label = scales::percent(probs, accuracy = 0.1)),
+            vjust = -0.5, size = 4) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1),
+                     limits = c(0, 1)) +
+  labs(
+    title = paste("Probability of QB's being available at Pick 6")
+  ) +
+  theme_fivethirtyeight(base_size = 14) +
+  theme(axis.title = element_text()) + ylab('Probability') + xlab("QB")
+theme(legend.position = "none")
+
+
+ggplot(totalDF, aes(x = reorder(types,-probs), y = probs, fill = types)) +
+  geom_col(width = 0.6, alpha = 0.8) +
+  geom_text(aes(label = scales::percent(probs, accuracy = 0.1)),
+            vjust = -0.5, size = 4) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1),
+                     limits = c(0, 1)) +
+  labs(
+    title = paste("Joint Probability Events for Mayfield, Darnold, Rosen")
+  ) +
+  theme_fivethirtyeight(base_size = 14) +
+  theme(axis.title = element_text()) + ylab('Probability') + xlab("Scenario")
+theme(legend.position = "none")
+
+
+
+ggplot(samdf, aes(x = factor(pick), y = probability)) +
+  geom_col(fill = "darkgreen") +
+  geom_text(aes(label = scales::percent(probability, accuracy = 1)),
+            vjust = -0.5, size = 4) +
+  labs(
+    title = "Probability of Sam Darnold Being Available after Picks 2-5",
+    subtitle = "Conditional on Baker Mayfield being the 1st overall pick"
+  ) +
+  theme_fivethirtyeight() + 
+  theme(axis.title = element_text()) + ylab('Probability') + xlab("Draft Pick") 
+
+
+ggplot(bakerdf, aes(x = factor(pick), y = probability)) +
+  geom_col(fill = "darkgreen") +
+  geom_text(aes(label = scales::percent(probability, accuracy = 1)),
+            vjust = -0.5, size = 4) +
+  labs(
+    title = "Probability of Baker Mayfield Being Available after Picks 2-5",
+    subtitle = "Conditional on Sam Darnold being the 1st overall pick"
+  ) +
+  theme_fivethirtyeight() +
+  theme(axis.title = element_text()) + ylab('Probability') + xlab("Draft Pick")
+
 ```
+
+While this is a good first step into quantifying the NFL Draft, there are a few steps that can be taken to develop this even further. Our rankings are only using the top 50 players from the consensus board, so this simulation is much more limited. Furthermore, we are only consider player-based traits, like their consensus board rank and position. Team need is a critical factor that is also considered in draft decisions, which our model does not include yet. Furthermore, coming up with a way to incorporate the date of the mock draft in our model would help improve accuracy and results (mock drafts tend to have more signal in predicting the actual outcome of the NFL Draft as they get closer to the day of the draft). With these improvements, this analysis could be used to give live draft-day insights for scenarios like the Jets-Colts trade, and estimate the lieklihood of draft targets being available at certain draft slots. This can also be applied in any other sport that has a draft.
