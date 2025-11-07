@@ -2,8 +2,8 @@
 title: "Simulating the 2018 NFL Draft"
 date: "2025-11-05"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -98,9 +98,8 @@ We first used our rankings to train a baseline PlackettLuce model that had no ad
 fit <- PlackettLuce(rankings = mock_rankings)
 lambda_hat <- coef(fit)
 players <- names(lambda_hat)
-players
+
 probs <- exp(lambda_hat[players])/sum(exp(lambda_hat[players]))
-print(probs)
 
 rawLambdas <- data.frame(
   Name = names(lambda_hat),
@@ -117,7 +116,6 @@ We refined this model to include whether or not the player is a QB and their con
 
 ```{r}
 standardPL <- pladmm(mock_rankings, ~qb + Consensus.Rank, data = features_item)
-summary(standardPL)
 
 lambda_hat <- predict(standardPL)
 
@@ -152,7 +150,7 @@ headshots$player_display_name[headshots$player_display_name == "Lamar Jackson"] 
 
 displaylambdas <- displaylambdas %>%
   left_join(headshots, by = c("Name" = "player_display_name")) %>%
-  select(Name, position_group, headshot_url, Probs) 
+  select(Name, position_group, Probs) 
 
 displaylambdas <- displaylambdas %>%
   distinct(Name, .keep_all = TRUE)
@@ -169,7 +167,6 @@ Rankings <- displaylambdas %>%
   cols_label(
     Name = "Name",
     position_group = "Position",
-    headshot_url = "",
     Probs = "Probabilities (%)"
   ) %>%
   tab_header(
@@ -179,7 +176,6 @@ Rankings <- displaylambdas %>%
   gtExtras::gt_theme_538() %>%
   tab_caption("Figure 2")
 Rankings <- gt_hulk_col_numeric(Rankings, column = "Probs")
-Rankings <- gt_img_rows(Rankings, column = "headshot_url")
 
 Rankings
 
