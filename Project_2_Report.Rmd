@@ -1,5 +1,6 @@
 ---
 title: "Simulating the 2018 NFL Draft"
+author: "Group 8: Shekhar Shah, Sam Negus, Max Rotblut, Joshua Leffel"
 date: "2025-11-05"
 output:
   html_document: default
@@ -7,7 +8,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
 ```{r, echo=FALSE, warning=FALSE, include=FALSE}
@@ -47,7 +48,7 @@ consensus <- read.csv("479 NFL Team Needs - Sheet2 (1).csv")
 
 After combining the datasets, we started by filtering out all players that weren't ranked in the top 50 Consensus Board. We then wanted to explore player attributes to help develop covariates for our model. We extracted positional information from each player, whether or not they played a premium position (Premium - QB, WR, OT, DT, DE, CB), and then another column that checks whether or not the player was a QB.
 
-```{r, echo=FALSE}
+```{r}
 
 consensus$Player[consensus$Player == "Quenten Nelson"] <- "Quenton Nelson"
 consensus$Player[consensus$Player == "Lamar Jackson"] <- "Lamar Jackson (LOU)"
@@ -109,7 +110,6 @@ arrange(desc(Probs)) %>%
 slice_head(n = 10)
 
 knitr::kable(rawLambdas, caption = "Figure 1")
-rawLambdas
 ```
 
 We refined this model to include whether or not the player is a QB and their consensus rank. Figure 2 shows the latent player desirabilities based on the mock drafts and our covariates, essentially showing the likelihood of each player being selected first overall. Comparing this to the results from the base PlackettLuce, we immediately see the increased value in QB's, as the top 3 QB's by the Big Board Ranking are now all in the top 3 of 1st pick probability as well. 
@@ -121,8 +121,7 @@ lambda_hat <- predict(standardPL)
 
 
 covprobs <- exp(lambda_hat[players])/sum(exp(lambda_hat[players]))
-print(covprobs)
-sum(covprobs)
+
 finallambdas <- data.frame(
   Name = names(lambda_hat),
   Probs = (covprobs)
@@ -242,7 +241,7 @@ long_results %>%
   )
 
 ```
-```
+
 
 
 
@@ -299,8 +298,6 @@ plot_df %>%
   ) %>% 
   gtExtras::gt_theme_538() %>%
   tab_caption("Figure 3")
-
-plot_df
 
 
 resultscheck <- mean_pick_df %>%
@@ -452,3 +449,5 @@ ggplot(bakerdf, aes(x = factor(pick), y = probability)) +
 ```
 
 While this is a good first step into quantifying the NFL Draft, there are a few steps that can be taken to develop this even further. Our rankings are only using the top 50 players from the consensus board, so this simulation is much more limited. Furthermore, we are only consider player-based traits, like their consensus board rank and position. Team need is a critical factor that is also considered in draft decisions, which our model does not include yet. Furthermore, coming up with a way to incorporate the date of the mock draft in our model would help improve accuracy and results (mock drafts tend to have more signal in predicting the actual outcome of the NFL Draft as they get closer to the day of the draft). With these improvements, this analysis could be used to give live draft-day insights for scenarios like the Jets-Colts trade, and estimate the lieklihood of draft targets being available at certain draft slots. This can also be applied in any other sport that has a draft.
+
+
